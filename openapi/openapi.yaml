@@ -1,0 +1,1832 @@
+openapi: 3.1.0
+info:
+  title: Devin External API
+  version: "1.0.0"
+  description: >
+    The Devin External API enables you to programmatically create and interact with Devin sessions.
+    This RESTful API allows you to integrate Devin into your own applications, automate workflows,
+    and build powerful tools on top of Devin.
+
+    **Note**: The External API is currently in alpha. While we strive to maintain backward
+    compatibility, some endpoints may change as we improve the API.
+tags:
+  - name: Sessions
+    description: Operations for creating and managing Devin sessions
+  - name: Attachments
+    description: Operations for file uploads
+  - name: Secrets
+    description: Operations for managing secrets and credentials
+  - name: AuditLogs
+    description: Operations for managing audit logs
+  - name: Enterprise
+    description: Operations for enterprise-specific features and reporting
+  - name: Knowledge
+    description: Operations for managing knowledge
+  - name: Playbooks
+    description: Operations for managing playbooks
+externalDocs:
+  description: Visit Devin's documentation page for more info
+  url: https://docs.devin.ai
+
+servers:
+  - url: https://api.devin.ai
+    description: Devin Production Server
+
+#################################################################
+#                         SECURITY SCHEMES
+#################################################################
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT # or any other token format
+
+  #################################################################
+  #                          SCHEMAS
+  #################################################################
+  schemas:
+    ###################################
+    # CREATE SESSION
+    ###################################
+    CreateSessionRequest:
+      type: object
+      properties:
+        prompt:
+          type: string
+          description: The task description for Devin
+        snapshot_id:
+          type: string
+          nullable: true
+          description: ID of a machine snapshot to use
+
+        unlisted:
+          type: boolean
+          nullable: true
+          description: Whether the session should be unlisted
+        idempotent:
+          type: boolean
+          nullable: true
+          description: Enable idempotent session creation
+        max_acu_limit:
+          type: integer
+          nullable: true
+          description: Maximum ACU limit for the session
+        secret_ids:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: List of secret IDs to use. If None, use all secrets. If empty list, use no secrets.
+        knowledge_ids:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: List of knowledge IDs to use. If None, use all knowledge. If empty list, use no knowledge.
+        tags:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: List of tags to add to the session.
+        title:
+          type: string
+          nullable: true
+          description: Custom title for the session. If None, a title will be generated automatically.
+      required:
+        - prompt
+      description: Request body for creating a new Devin session
+
+    CreateSessionResponse:
+      type: object
+      properties:
+        session_id:
+          type: string
+          description: Unique identifier for the session
+        url:
+          type: string
+          description: URL to view the session in the web interface
+        is_new_session:
+          type: boolean
+          description: Indicates if a new session was created (only present if idempotent=true)
+      required:
+        - session_id
+        - url
+      description: Response body returned when a session is successfully created
+
+    ###################################
+    # GET SESSION DETAILS
+    ###################################
+    Message:
+      type: object
+      properties:
+        type:
+          type: string
+          description: The type of the message
+        event_id:
+          type: string
+          description: Unique identifier for the event that generated this message
+        message:
+          type: string
+          description: The content of the message
+        timestamp:
+          type: string
+          format: date-time
+          description: Timestamp when the message was created
+        username:
+          type: string
+          description: The username associated with the message
+          nullable: true
+        origin:
+          type: string
+          description: The origin of the message
+          nullable: true
+        user_id:
+          type: string
+          description: The unique identifier of the user who sent the message
+          nullable: true
+      required:
+        - type
+        - event_id
+        - message
+        - timestamp
+      description: A message in a Devin session
+
+    GetSessionResponse:
+      type: object
+      properties:
+        session_id:
+          type: string
+          description: Unique identifier for the session
+        status:
+          type: string
+          description: Current status of the session
+        title:
+          type: string
+          description: Session title
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp (ISO 8601)
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp (ISO 8601)
+        snapshot_id:
+          type: string
+          nullable: true
+          description: ID of the machine snapshot used
+        playbook_id:
+          type: string
+          nullable: true
+          description: ID of the playbook used
+        tags:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: List of tags associated with the session
+        pull_request:
+          type: object
+          nullable: true
+          description: Pull request information (null if no PR is associated) containing url field
+        structured_output:
+          type: object
+          description: Task-specific structured output
+          additionalProperties: true
+          nullable: true
+        status_enum:
+          type: string
+          enum:
+            - "working"
+            - "blocked"
+            - "expired"
+            - "finished"
+            - "suspend_requested"
+            - "suspend_requested_frontend"
+            - "resume_requested"
+            - "resume_requested_frontend"
+            - "resumed"
+          description: |
+            Session status enumerations:
+            - "working": Devin is actively working on a task
+            - "blocked": Devin is waiting for user input or response
+            - "expired": Session has expired
+            - "finished": Session has completed
+            - "suspend_requested": Request to suspend the session
+            - "suspend_requested_frontend": Frontend-initiated suspend request
+            - "resume_requested": Request to resume the session
+            - "resume_requested_frontend": Frontend-initiated resume request
+            - "resumed": Session has been resumed
+          nullable: true
+        messages:
+          type: array
+          description: List of messages in the session
+          items:
+            $ref: "#/components/schemas/Message"
+          nullable: true
+      required:
+        - session_id
+        - status
+      description: Detailed information about an existing session
+
+    ###################################
+    # SEND MESSAGE TO SESSION
+    ###################################
+    SendMessageRequest:
+      type: object
+      properties:
+        message:
+          type: string
+          description: The message to send to Devin
+      required:
+        - message
+      description: Request body for sending a message to an existing Devin session
+
+    ###################################
+    # LIST SECRETS
+    ###################################
+    SecretMetadata:
+      type: object
+      properties:
+        secret_id:
+          type: string
+          description: Unique identifier for the secret
+        secret_type:
+          type: string
+          description: Type of secret
+          enum:
+            - cookie
+            - key-value
+            - dictionary
+            - totp
+        secret_name:
+          type: string
+          description: User-defined name for the secret
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp (ISO 8601)
+      required:
+        - secret_id
+        - secret_type
+        - secret_name
+        - created_at
+      description: Metadata about a stored secret
+
+    ###################################
+    # CREATE SECRET
+    ###################################
+    CreateSecretRequest:
+      type: object
+      properties:
+        type:
+          type: string
+          description: Type of secret
+          enum:
+            - cookie
+            - key-value
+            - totp
+        key:
+          type: string
+          description: User-defined name for the secret
+        value:
+          type: string
+          description: The secret value to store
+        sensitive:
+          type: boolean
+          description: Whether the secret should be treated as sensitive
+        note:
+          type: string
+          description: Optional note about the secret
+      required:
+        - type
+        - key
+        - value
+        - sensitive
+        - note
+      description: Request body for creating a new secret
+
+    ###################################
+    ###################################
+    EditSessionTagsRequest:
+      type: object
+      properties:
+        tags:
+          type: array
+          items:
+            type: string
+          description: List of tags for the session
+      required:
+        - tags
+      description: Request body for updating session tags
+
+    ###################################
+    ###################################
+    EnterpriseConsumptionResponse:
+      type: object
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConsumptionSession"
+          description: List of sessions with consumption data
+        cycle:
+          $ref: "#/components/schemas/ConsumptionCycle"
+          description: Billing cycle information
+      required:
+        - sessions
+        - cycle
+      description: Enterprise consumption data response
+
+    ConsumptionSession:
+      type: object
+      properties:
+        user_name:
+          type: string
+          description: Name of the user who created the session
+          example: "John Doe"
+        user_email:
+          type: string
+          format: email
+          description: Email address of the user
+          example: "john.doe@example.com"
+        session_name:
+          type: string
+          description: Name/title of the session
+          example: "Create portfolio website"
+        created_at:
+          type: string
+          format: date-time
+          description: Session creation timestamp in ISO format
+          example: "2024-11-15T14:32:18.456789+00:00"
+        acu_used:
+          type: number
+          format: float
+          description: Amount of ACUs (Agent Compute Units) consumed
+          example: 2.4567891234567892
+        url:
+          type: string
+          format: uri
+          description: URL to view the session
+          example: "https://app.devin.ai/sessions/f8e9d7c6b5a4321098765432109876543"
+        org_id:
+          type: string
+          description: Organization identifier
+          example: "org-a1b2c3d4e5f6789012345678901234567"
+        org_name:
+          type: string
+          description: Organization name
+          example: "Example Organization"
+        pull_requests:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConsumptionPullRequest"
+          description: List of pull requests created during the session
+      required:
+        - user_name
+        - user_email
+        - session_name
+        - created_at
+        - acu_used
+        - url
+        - org_id
+        - org_name
+        - pull_requests
+      description: Session consumption data
+
+    ConsumptionPullRequest:
+      type: object
+      properties:
+        pr_url:
+          type: string
+          format: uri
+          description: URL of the pull request
+          example: "https://github.com/example/repo/pull/6"
+        pr_status:
+          type: string
+          description: Status of the pull request
+          enum: ["open", "closed", "merged"]
+          example: "open"
+      required:
+        - pr_url
+        - pr_status
+      description: Pull request information
+
+    ConsumptionCycle:
+      type: object
+      properties:
+        start:
+          type: string
+          format: date
+          description: Start date of the billing cycle
+          example: "2025-07-01"
+        end:
+          type: string
+          format: date
+          description: End date of the billing cycle
+          example: "2025-07-31"
+      required:
+        - start
+        - end
+      description: Billing cycle information
+
+    ###################################
+    ###################################
+    ConsumptionFilterParams:
+      type: object
+      properties:
+        start_date:
+          type: string
+          format: date
+          description: Start date in ISO format (YYYY-MM-DD)
+        end_date:
+          type: string
+          format: date
+          description: End date in ISO format (YYYY-MM-DD)
+      required:
+        - start_date
+        - end_date
+      description: Parameters for filtering enterprise consumption data
+
+    ###################################
+    # AUDIT LOGS
+    ###################################
+    AuditLog:
+      type: object
+      description: Audit log entry
+      properties:
+        audit_log_id:
+          type: string
+          description: "Unique identifier for the audit log entry (format: audit_log-{uuid_without_hyphens})"
+          example: "audit_log-1234567890abcdef1234567890abcdef"
+        created_at:
+          type: integer
+          description: Creation timestamp (Unix timestamp in milliseconds)
+        action:
+          type: string
+          description: The action that was performed
+          enum:
+            - add_member
+            - add_members_to_enterprise
+            - add_members_to_org
+            - add_members_to_primary_org
+            - assign_roles
+            - create_azure_devops_integration
+            - create_folder
+            - create_github_integration
+            - create_gitlab_integration
+            - create_knowledge
+            - create_linear_integration
+            - create_org
+            - create_org_api_key
+            - create_org_group
+            - create_playbook
+            - create_secret
+            - create_session
+            - create_user_api_key
+            - delete_azure_devops_integration
+            - delete_folder
+            - delete_github_integration
+            - delete_gitlab_integration
+            - delete_knowledge
+            - delete_member
+            - delete_org
+            - delete_org_group
+            - delete_playbook
+            - delete_repo_setup
+            - delete_secret
+            - edit_knowledge
+            - finish_repo_setup
+            - github_integration_deleted
+            - remove_members_from_org
+            - remove_repo_from_devin
+            - search_query
+            - send_message
+            - sleep_session
+            - start_repo_setup
+            - terminate_session
+            - update_enterprise_hypervisor_settings
+            - update_enterprise_settings
+            - update_folder
+            - update_org_group
+            - update_playbook
+            - update_secret
+            - view_org_api_key
+            - view_user_api_key
+
+    ###################################
+    # KNOWLEDGE
+    ###################################
+    KnowledgeRequest:
+      type: object
+      description: Information about a piece of knowledge
+      properties:
+        body:
+          type: string
+          description: The content of the knowledge. Devin will read this when the knowledge gets triggered
+        name:
+          title: Name
+          description: The name of the knowledge, used only for displaying the knowledge on the knowledge page
+        parent_folder_id:
+          type: string
+          nullabe: true
+          description: The id of the folder that this knowledge is located in. Null if the knowledge is not located in any folder
+        trigger_description:
+          type: string
+          description: The description of when this knowledge should be used by Devin
+        pinned_repo:
+          type: string
+          nullable: true
+          description: |
+            Pin knowledge to specific repositories. Valid values:
+            - null: No pinning (default)
+            - "all": Pin to all repositories  
+            - "owner/repo": Pin to specific repository
+          example: "all"
+      required:
+        - name
+        - body
+        - trigger_description
+    KnowledgeResponse:
+      description: Information about a piece of knowledge
+      allOf:
+        - $ref: "#/components/schemas/KnowledgeRequest"
+        - type: object
+          properties:
+            id:
+              type: string
+              description: The id of the knowledge
+            created_at:
+              type: string
+              format: date-time
+              description: Creation timestamp (ISO 8601)
+          required:
+            - id
+            - created_at
+    KnowledgeFolderResponse:
+      type: object
+      description: Information about a knowledge folder
+      properties:
+        id:
+          type: string
+          description: The id of the folder
+        name:
+          type: string
+          description: The name of the folder
+        description:
+          type: string
+          description: The description of the folder, assists the auto-organization of knowledge
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp (ISO 8601)
+
+    ###################################
+    # PLAYBOOKS
+    ###################################
+    CreatePlaybookRequest:
+      type: object
+      description: Request body for creating or updating a playbook
+      properties:
+        title:
+          type: string
+          minLength: 1
+          description: The title of the playbook
+        body:
+          type: string
+          minLength: 1
+          description: The content/instructions of the playbook
+        macro:
+          type: string
+          nullable: true
+          description: Optional macro shortcut for the playbook (e.g., !deploy)
+      required:
+        - title
+        - body
+
+    PlaybookResponse:
+      type: object
+      description: Response object for playbook operations
+      properties:
+        playbook_id:
+          type: string
+          description: Unique identifier for the playbook
+        title:
+          type: string
+          description: The title of the playbook
+        body:
+          type: string
+          description: The content/instructions of the playbook
+        status:
+          type: string
+          description: Status of the playbook (published, deleted, etc.)
+        access_type:
+          type: string
+          description: Access level of the playbook (team, community, etc.)
+        org_id:
+          type: string
+          description: Organization ID that owns the playbook
+        created_at:
+          type: string
+          format: date-time
+          description: When the playbook was created
+        updated_at:
+          type: string
+          format: date-time
+          description: When the playbook was last updated
+        created_by_user_id:
+          type: string
+          nullable: true
+          description: ID of the user who created the playbook
+        created_by_user_name:
+          type: string
+          nullable: true
+          description: Name of the user who created the playbook
+        updated_by_user_id:
+          type: string
+          nullable: true
+          description: ID of the user who last updated the playbook
+        updated_by_user_name:
+          type: string
+          nullable: true
+          description: Name of the user who last updated the playbook
+        macro:
+          type: string
+          nullable: true
+          description: Optional macro shortcut for the playbook
+
+  #################################################################
+  #                          RESPONSES
+  #################################################################
+  responses:
+    UnauthorizedError:
+      description: Unauthorized - Invalid or missing API key
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              detail:
+                type: string
+                example: Missing or invalid Authorization header
+    NotFoundError:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              detail:
+                type: string
+                example: The requested resource does not exist
+    ForbiddenError:
+      description: Forbidden - User does not have permission to access the resource
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              detail:
+                type: string
+                example: You do not have permission to access this resource
+
+    BadRequestError:
+      description: Bad Request
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              detail:
+                type: string
+                example: Invalid input or request
+    InternalServerError:
+      description: Internal Server Error
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              detail:
+                type: string
+                example: Something went wrong
+  #################################################################
+  #                          KNOWLEDGE
+  #################################################################
+  examples:
+    knowledge-response:
+      value:
+        id: "note-xxx"
+        name: "Getting the weather"
+        body: "Navigate to weather.com"
+        trigger_description: "When the user asks about the weather"
+        parent_folder_id: "folder-xxx"
+        created_at: "2024-01-01T00:00:00Z"
+#################################################################
+#                         GLOBAL SECURITY
+#################################################################
+security:
+  - bearerAuth: []
+
+#################################################################
+#                         PATHS
+#################################################################
+paths:
+  #################################################################
+  # 1) CREATE A SESSION
+  #################################################################
+  /v1/sessions:
+    get:
+      tags:
+        - Sessions
+      summary: List all sessions
+      description: |
+        Get a paginated list of Devin sessions. The sessions are ordered by creation date
+        in descending order (newest first). Each session includes its status, metadata,
+        and any structured output from the latest events.
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of sessions to return per page
+          required: false
+          schema:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 1000
+        - name: offset
+          in: query
+          description: Number of sessions to skip for pagination
+          required: false
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+        - name: tags
+          in: query
+          description: Filter sessions by tags
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+      responses:
+        "200":
+          description: List of sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        session_id:
+                          type: string
+                          description: Unique identifier for the session
+                        status:
+                          type: string
+                          description: Current status of the session
+                        title:
+                          type: string
+                          description: Title or description of the session
+                        created_at:
+                          type: string
+                          format: date-time
+                          description: Timestamp when the session was created
+                        updated_at:
+                          type: string
+                          format: date-time
+                          description: Timestamp when the session was last updated
+                        snapshot_id:
+                          type: string
+                          nullable: true
+                          description: ID of the associated snapshot, if any
+                        playbook_id:
+                          type: string
+                          nullable: true
+                          description: ID of the associated playbook, if any
+                        tags:
+                          type: array
+                          nullable: true
+                          items:
+                            type: string
+                          description: List of tags associated with the session
+                        pull_request:
+                          type: object
+                          nullable: true
+                          properties:
+                            url:
+                              type: string
+                              description: URL of the associated pull request
+                          description: Pull request information, if any
+                        structured_output:
+                          type: string
+                          nullable: true
+                          description: Latest structured output value from events
+                        status_enum:
+                          type: string
+                          nullable: true
+                          description: Latest status enum from status updates
+                        requesting_user_email:
+                          type: string
+                          nullable: true
+                          description: Email address of the user who created the session
+                      required:
+                        - session_id
+                        - status
+                        - title
+                        - created_at
+                        - updated_at
+                required:
+                  - sessions
+              examples:
+                list-sessions-response:
+                  summary: Example response listing sessions
+                  value:
+                    sessions:
+                      - session_id: "devin-xxx"
+                        status: "running"
+                        title: "Review PR #123"
+                        created_at: "2024-01-01T00:00:00Z"
+                        updated_at: "2024-01-01T00:01:00Z"
+                        snapshot_id: null
+                        playbook_id: null
+                        pull_request:
+                          url: "https://github.com/example/repo/pull/123"
+                        structured_output: "Task completed successfully"
+                        status_enum: "working"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      tags:
+        - Sessions
+      summary: Create a new session
+      description: |
+        Create a new Devin session. Provide a prompt to describe the task.
+        The session can optionally be made unlisted or idempotent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSessionRequest"
+            examples:
+              create-session-example:
+                summary: Example request for creating a session
+                value:
+                  prompt: "Review the pull request at https://github.com/example/repo/pull/123"
+                  idempotent: true
+      responses:
+        "200":
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateSessionResponse"
+              examples:
+                create-session-response:
+                  summary: Example response for creating a session
+                  value:
+                    session_id: "devin-xxx"
+                    url: "https://app.devin.ai/sessions/xxx"
+                    is_new_session: true
+        "400":
+          $ref: "#/components/responses/BadRequestError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  #################################################################
+  # 2) GET SESSION DETAILS
+  #################################################################
+  /v1/sessions/{session_id}:
+    get:
+      tags:
+        - Sessions
+      summary: Retrieve details about an existing session
+      description: |
+        Get information about the session's current status, timestamps,
+        snapshot/playbook references, and any structured output.
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          description: The session ID
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Returns session details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetSessionResponse"
+              examples:
+                get-session-details:
+                  summary: Example session details
+                  value:
+                    session_id: "devin-abc123def456"
+                    status: "running"
+                    title: "Review PR #123"
+                    created_at: "2024-01-01T00:00:00.000000+00:00"
+                    updated_at: "2024-01-01T00:05:30.123456+00:00"
+                    snapshot_id: null
+                    playbook_id: null
+                    tags: ["api", "documentation", "review"]
+                    pull_request:
+                      url: "https://github.com/example/repo/pull/123"
+                    structured_output:
+                      result: "success"
+                      files_modified: 3
+                    status_enum: "blocked"
+                    messages:
+                      [
+                        {
+                          "type": "initial_user_message",
+                          "event_id": "event-abc123-def4-5678-9012-abcdef123456",
+                          "message": "Review the pull request at https://github.com/example/repo/pull/123",
+                          "timestamp": "2024-01-01T00:00:00.000000+00:00",
+                          "username": "user@example.com",
+                          "origin": "web",
+                          "user_id": "user-123e4567-e89b-12d3-a456-426614174000"
+                        },
+                        {
+                          "type": "devin_message",
+                          "event_id": "event-def456-abc1-2345-6789-fedcba654321",
+                          "message": "I'll review the pull request for you. Let me analyze the changes.",
+                          "timestamp": "2024-01-01T00:00:15.123456+00:00"
+                        },
+                        {
+                          "type": "user_message",
+                          "event_id": "event-789abc-def0-1234-5678-9abcdef01234",
+                          "message": "Please focus on the security implications",
+                          "timestamp": "2024-01-01T00:03:45.987654+00:00",
+                          "username": "user@example.com",
+                          "origin": "web",
+                          "user_id": "user-123e4567-e89b-12d3-a456-426614174000"
+                        },
+                        {
+                          "type": "devin_message",
+                          "event_id": "event-012def-abc3-4567-8901-23456789abcd",
+                          "message": "I've completed the security review. Found 2 potential issues that need attention.",
+                          "timestamp": "2024-01-01T00:05:30.123456+00:00"
+                        }
+                      ]
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      tags:
+        - Sessions
+      summary: Terminate an existing session
+      description: |
+        Terminate a running Devin session by sending a stop event. This will gracefully
+        stop the session and prevent further execution.
+        
+        **Permission Requirements:**
+        - If the `session-write-only-owner` feature flag is enabled for your organization,
+          only the session owner can terminate the session.
+        - Otherwise, any user in the organization with access to the session can terminate it.
+        
+        **Status Validation:**
+        - Cannot terminate a session that has already exited (status: "exit")
+        - Sessions in other states (running, blocked, suspended) can be terminated
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          description: The session ID
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Session terminated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: "Session terminated successfully"
+              examples:
+                terminate-session-success:
+                  summary: Successful termination
+                  value:
+                    detail: "Session terminated successfully"
+        "400":
+          description: Bad Request - Session already exited or invalid state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+              examples:
+                already-exited:
+                  summary: Session already exited
+                  value:
+                    detail: "Devin session already exited"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          description: Forbidden - Only session owner can terminate (when feature flag enabled)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+              examples:
+                owner-only:
+                  summary: Owner-only restriction
+                  value:
+                    detail: "Forbidden - Only session owner can terminate"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  #################################################################
+  # 3) UPLOAD FILES
+  #################################################################
+  /v1/attachments:
+    post:
+      tags:
+        - Attachments
+      summary: Upload files for Devin
+      description: |
+        Upload files via multipart/form-data. This endpoint returns a URL
+        that can be referenced in session prompts or other requests.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: The file to upload
+            encoding:
+              file:
+                contentType: application/octet-stream
+      responses:
+        "200":
+          description: File successfully uploaded
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: A string URL where the uploaded file can be accessed
+              example: https://storage.devin.ai/attachments/xxx/file.py
+        "400":
+          $ref: "#/components/responses/BadRequestError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/attachments/{uuid}/{name}:
+    get:
+      tags:
+        - Attachments
+      summary: Download attachment files
+      description: |
+        Download a previously uploaded attachment file using its UUID and filename.
+        This endpoint returns a redirect to a presigned URL for the file.
+
+        **Note for curl users**: Use the `-L` flag to follow the redirect automatically.
+      parameters:
+        - name: uuid
+          in: path
+          required: true
+          description: The UUID of the attachment
+          schema:
+            type: string
+        - name: name
+          in: path
+          required: true
+          description: The filename of the attachment
+          schema:
+            type: string
+      responses:
+        "307":
+          description: Temporary redirect to presigned URL for file download
+          headers:
+            Location:
+              description: The presigned URL for downloading the file
+              schema:
+                type: string
+                format: uri
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          description: Attachment not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: "Attachment not found"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+      x-codeSamples:
+        - lang: "curl"
+          source: |
+            # Note: -L flag is required to follow the 307 redirect
+            curl -L -X GET "https://api.devin.ai/v1/attachments/{uuid}/{name}" \
+              -H "Authorization: Bearer YOUR_API_KEY" \
+              -o "downloaded_file.ext"
+
+  #################################################################
+  # 4) SEND MESSAGE TO SESSION
+  #################################################################
+  /v1/sessions/{session_id}/message:
+    post:
+      tags:
+        - Sessions
+      summary: Send a message to an existing session
+      description: |
+        Interact with an active Devin session by sending a message. This is
+        particularly useful in sessions waiting for user input or confirmations.
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          description: The session ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageRequest"
+            examples:
+              send-message-example:
+                summary: Example sending a message
+                value:
+                  message: "Please proceed with the next step"
+      responses:
+        "204":
+          description: No Content on success
+        "400":
+          $ref: "#/components/responses/BadRequestError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  #################################################################
+  # 5) TERMINATE SESSION
+  #################################################################
+  /sessions/{session_id}:
+    delete:
+      tags:
+        - Sessions
+      summary: Terminate a session
+      description: |
+        Terminate an active Devin session. This sends a stop signal to the session,
+        causing it to gracefully shut down. Once terminated, the session cannot be resumed.
+        
+        Note: Sessions that have already exited cannot be terminated again.
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          description: The session ID to terminate
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Session terminated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: "Session terminated successfully"
+              examples:
+                terminate-session-response:
+                  summary: Example response for terminating a session
+                  value:
+                    detail: "Session terminated successfully"
+        '400':
+          description: Bad Request - Session already exited
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: "Devin session already exited"
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          description: Forbidden - Only session owner can terminate
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: "Forbidden - Only session owner can terminate"
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  #################################################################
+  # SECRETS MANAGEMENT
+  #################################################################
+  /v1/secrets:
+    get:
+      tags:
+        - Secrets
+      summary: List all secrets metadata
+      description: |
+        Get a list of all secrets metadata. This endpoint only returns non-sensitive
+        information about the secrets, not the secret values themselves.
+      responses:
+        "200":
+          description: List of secrets metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  secrets:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SecretMetadata"
+                required:
+                  - secrets
+              examples:
+                list-secrets-response:
+                  summary: Example response listing secrets
+                  value:
+                    secrets:
+                      - secret_id: "sec_xxx"
+                        secret_type: "key-value"
+                        secret_name: "API Access Token"
+                        created_at: "2024-01-01T00:00:00Z"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      tags:
+        - Secrets
+      summary: Create a new secret
+      description: |
+        Create a new secret in your organization. The secret value will be encrypted and stored securely.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSecretRequest"
+            examples:
+              create-secret-example:
+                summary: Example creating a new secret
+                value:
+                  type: "key-value"
+                  key: "API_TOKEN"
+                  value: "sk-1234567890abcdef"
+                  sensitive: true
+                  note: "Production API token for external service"
+      responses:
+        "201":
+          description: Secret created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    description: The unique identifier of the created secret
+                required:
+                  - id
+              examples:
+                create-secret-response:
+                  summary: Example response for creating a secret
+                  value:
+                    id: "sec_abc123def456"
+        "400":
+          $ref: "#/components/responses/BadRequestError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "409":
+          description: Conflict - Secret name already exists
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: "Secret name is not unique"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/secrets/{secret_id}:
+    delete:
+      tags:
+        - Secrets
+      summary: Delete a secret
+      description: |
+        Permanently delete a secret by its ID. This action cannot be undone.
+      parameters:
+        - name: secret_id
+          in: path
+          required: true
+          description: The ID of the secret to delete
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Secret successfully deleted
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  #################################################################
+  #################################################################
+  /v1/sessions/{session_id}/tags:
+    put:
+      tags:
+        - Sessions
+      summary: Update session tags
+      description: |
+        Update the tags associated with a Devin session.
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          description: The session ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditSessionTagsRequest"
+            examples:
+              update-tags-example:
+                summary: Example updating session tags
+                value:
+                  tags: ["production", "api", "documentation"]
+      responses:
+        "200":
+          description: Tags updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: "Tags updated successfully"
+        "400":
+          $ref: "#/components/responses/BadRequestError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  #################################################################
+  #################################################################
+  /enterprise/consumption:
+    get:
+      tags:
+        - Enterprise
+      summary: Get enterprise consumption data
+      description: |
+        Retrieve detailed consumption data for an enterprise organization.
+        Data is filtered by start and end dates in ISO format.
+      parameters:
+        - name: start_date
+          in: query
+          required: true
+          description: Start date in ISO format (YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          required: true
+          description: End date in ISO format (YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Enterprise consumption data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnterpriseConsumptionResponse"
+        "400":
+          description: Bad Request - Invalid date format
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: "Invalid date format. Dates must be in ISO format (YYYY-MM-DD)"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          description: Forbidden - Consumption API not enabled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: "Contact support to enable the consumption API"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  #################################################################
+  # AUDIT LOGS
+  #################################################################
+  /v1/audit-logs:
+    get:
+      tags:
+        - AuditLogs
+      summary: List all audit logs
+      description: |
+        Get a paginated list of all audit logs for the current organization.
+        The logs are ordered by creation date in descending order (newest first).
+        
+        Audit logs track various actions across organization management, sessions, API keys, 
+        secrets, knowledge management, playbooks, repository management, git integrations, 
+        enterprise settings, and search operations.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of audit logs to return
+          schema:
+            type: integer
+            default: 100
+            minimum: 1
+        - name: before
+          in: query
+          required: false
+          description: Filter logs before a specific timestamp
+          schema:
+            type: string
+        - name: after
+          in: query
+          required: false
+          description: Filter logs after a specific timestamp
+          schema:
+            type: string
+      responses:
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "200":
+          description: List of audit logs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  audit_logs:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AuditLog"
+                required:
+                  - audit_logs
+              examples:
+                list-audit-logs-response:
+                  summary: Example response listing audit logs
+                  value:
+                    audit_logs:
+                      - created_at: 1704067200000
+                        action: "create_session"
+                        user_id: "email|abcd"
+                        session_id: "session_789"
+                      - created_at: 1704153600000
+                        action: "add_members_to_org"
+                        target_user_id: "email|efgh"
+                        org_id: "org_123"
+                      - created_at: 1704240000000
+                        action: "create_github_integration"
+                        integration_id: "github_456"
+                      - created_at: 1704326400000
+                        action: "update_enterprise_settings"
+                        setting_type: "hypervisor"
+  #################################################################
+  # KNOWLEDGE
+  #################################################################
+  /v1/knowledge:
+    get:
+      tags:
+        - Knowledge
+      summary: List knowledge
+      description: |
+        Gets all knowledge and folders in your current organization. This endpoint will not return system knowledge (repo indexes or built-in knowledge) managed by Cognition.
+      responses:
+        "200":
+          description: List of all knowledge and folders
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  knowledge:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/KnowledgeResponse"
+                  folders:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/KnowledgeFolderResponse"
+                required:
+                  - knowledge
+                  - folders
+              examples:
+                list-knowledge-response:
+                  summary: Example response listing knowledge and folders
+                  value:
+                    knowledge:
+                      - $ref: "#/components/examples/knowledge-response/value"
+                    folders:
+                      - id: "folder-xxx"
+                        name: "Fetching data"
+                        description: "Knowledge related to what websites or APIs Devin should use to complete certain tasks"
+                        created_at: "2024-01-01T00:00:00Z"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+    post:
+      tags:
+        - Knowledge
+      summary: Create knowledge
+      description: |
+        Create a new piece of knowledge.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KnowledgeRequest"
+      responses:
+        "200":
+          description: Knowledge created. Returns the newly created knowledge.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeResponse"
+              examples:
+                create-knowledge-response:
+                  summary: Example response for creating a knowledge
+                  value:
+                    $ref: "#/components/examples/knowledge-response/value"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ForbiddenError"
+
+  /v1/knowledge/{note_id}:
+    delete:
+      tags:
+        - Knowledge
+      summary: Delete knowledge
+      description: |
+        Permanently delete a piece of knowledge by its ID. This action cannot be undone.
+      parameters:
+        - name: note_id
+          in: path
+          required: true
+          description: The ID of the knowledge to delete
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Knowledge successfully deleted
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+    put:
+      tags:
+        - Knowledge
+      summary: Update knowledge
+      description: |
+        Update the name, body, or trigger of a piece of knowledge.
+      parameters:
+        - name: note_id
+          in: path
+          required: true
+          description: The ID of the knowledge to update
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KnowledgeRequest"
+        required: true
+      responses:
+        "200":
+          description: Knowledge successfully updated. Returns the updated knowledge.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeResponse"
+              examples:
+                update-knowledge-response:
+                  summary: Example response for updating a knowledge
+                  value:
+                    $ref: "#/components/examples/knowledge-response/value"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ForbiddenError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
+  #################################################################
+  #################################################################
+  /v1/playbooks:
+    get:
+      tags:
+        - Playbooks
+      summary: List playbooks
+      description: |
+        Retrieve all team playbooks accessible to your organization. Only team playbooks are returned via the API.
+      responses:
+        "200":
+          description: List of playbooks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PlaybookResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ForbiddenError"
+    post:
+      tags:
+        - Playbooks
+      summary: Create playbook
+      description: |
+        Create a new team playbook. Requires ManageOrgPlaybooks permission.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePlaybookRequest"
+      responses:
+        "200":
+          description: Playbook created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlaybookResponse"
+        "400":
+          $ref: "#/components/responses/BadRequestError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ForbiddenError"
+
+  /v1/playbooks/{playbook_id}:
+    get:
+      tags:
+        - Playbooks
+      summary: Get playbook
+      description: |
+        Retrieve details of a specific playbook by its ID.
+      parameters:
+        - name: playbook_id
+          in: path
+          required: true
+          description: The ID of the playbook to retrieve
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Playbook details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlaybookResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+    put:
+      tags:
+        - Playbooks
+      summary: Update playbook
+      description: |
+        Update an existing team playbook. Requires ManageOrgPlaybooks permission.
+        Only team playbooks can be updated.
+      parameters:
+        - name: playbook_id
+          in: path
+          required: true
+          description: The ID of the playbook to update
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePlaybookRequest"
+      responses:
+        "200":
+          description: Playbook updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+        "400":
+          $ref: "#/components/responses/BadRequestError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ForbiddenError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+    delete:
+      tags:
+        - Playbooks
+      summary: Delete playbook
+      description: |
+        Delete a team playbook. Requires ManageOrgPlaybooks permission.
+        This marks the playbook as deleted and removes any associated macro.
+      parameters:
+        - name: playbook_id
+          in: path
+          required: true
+          description: The ID of the playbook to delete
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Playbook deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ForbiddenError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"

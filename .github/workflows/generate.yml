@@ -1,0 +1,60 @@
+name: Generate SDK
+
+# On-demand generation of the Go client from the Devin OpenAPI spec.
+# Run manually from the Actions tab ("Run workflow"), optionally overriding the
+# spec URL. The workflow fetches the latest spec, regenerates the client, and
+# opens a pull request if anything changed.
+on:
+  workflow_dispatch:
+    inputs:
+      spec_url:
+        description: "URL of the OpenAPI spec to generate from"
+        required: false
+        default: "https://docs.devin.ai/openapi.yaml"
+      branch:
+        description: "Branch to open the pull request against"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Fetch OpenAPI spec
+        run: |
+          curl -fsSL "${{ github.event.inputs.spec_url }}" -o openapi/openapi.yaml
+          echo "Fetched spec ($(wc -l < openapi/openapi.yaml) lines)"
+
+      - name: Generate client
+        run: make generate
+
+      - name: Verify build
+        run: make build
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@c5a7806660adbe173f04e3e038b0ccdcd758773c # v6
+        with:
+          commit-message: "chore: regenerate Go client from OpenAPI spec"
+          title: "chore: regenerate Go client from OpenAPI spec"
+          body: |
+            Automated regeneration of the Devin Go client.
+
+            - Spec source: `${{ github.event.inputs.spec_url }}`
+            - Triggered by: @${{ github.actor }}
+          branch: automated/regenerate-sdk
+          base: ${{ github.event.inputs.branch }}
+          delete-branch: true
+          labels: automated, sdk
